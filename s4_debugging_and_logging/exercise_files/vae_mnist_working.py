@@ -10,6 +10,9 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader
 from torchvision.datasets import MNIST
 from torchvision.utils import save_image
+from torch.utils.data import TensorDataset
+from torch.profiler import profile, tensorboard_trace_handler, ProfilerActivity
+
 
 # Model Hyperparameters
 dataset_path = "datasets"
@@ -24,10 +27,10 @@ epochs = 5
 
 
 # Data loading
-mnist_transform = transforms.Compose([transforms.ToTensor()])
-
-train_dataset = MNIST(dataset_path, transform=mnist_transform, train=True, download=True)
-test_dataset = MNIST(dataset_path, transform=mnist_transform, train=False, download=True)
+train_dataset = MNIST(dataset_path, train=True, download=True)
+train_dataset = TensorDataset(train_dataset.data.float() / 255.0, train_dataset.targets)
+test_dataset = MNIST(dataset_path, train=False, download=True)
+test_dataset = TensorDataset(test_dataset.data.float() / 255.0, test_dataset.targets)
 
 train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
 test_loader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=False)
@@ -109,34 +112,35 @@ def loss_function(x, x_hat, mean, log_var):
 
 optimizer = Adam(model.parameters(), lr=lr)
 
+with profile(activities=[ProfilerActivity.CPU], record_shapes=True, profile_memory=True, on_trace_ready=tensorboard_trace_handler("./log/vae_mnist_working")) as prof:
 
-print("Start training VAE...")
-model.train()
-for epoch in range(epochs):
-    overall_loss = 0
-    for batch_idx, (x, _) in enumerate(train_loader):
-        if batch_idx % 100 == 0:
-            print(batch_idx)
-        x = x.view(batch_size, x_dim)
-        x = x.to(DEVICE)
+    print("Start training VAE...")
+    model.train()
+    for epoch in range(epochs):
+        overall_loss = 0
+        for batch_idx, (x, _) in enumerate(train_loader):
+            if batch_idx % 100 == 0:
+                print(batch_idx)
+            x = x.view(batch_size, x_dim)
+            x = x.to(DEVICE)
 
-        optimizer.zero_grad()
+            optimizer.zero_grad()
 
-        x_hat, mean, log_var = model(x)
-        loss = loss_function(x, x_hat, mean, log_var)
+            x_hat, mean, log_var = model(x)
+            loss = loss_function(x, x_hat, mean, log_var)
 
-        overall_loss += loss.item()
+            overall_loss += loss.item()
 
-        loss.backward()
-        optimizer.step()
-    print(
-        "\tEpoch",
-        epoch + 1,
-        "complete!",
-        "\tAverage Loss: ",
-        overall_loss / (batch_idx * batch_size),
-    )
-print("Finish!!")
+            loss.backward()
+            optimizer.step()
+        print(
+            "\tEpoch",
+            epoch + 1,
+            "complete!",
+            "\tAverage Loss: ",
+            overall_loss / (batch_idx * batch_size),
+        )
+    print("Finish!!")
 
 # Generate reconstructions
 model.eval()
